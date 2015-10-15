@@ -37,30 +37,6 @@ public class EditableStyledDocumentTest {
     }
 
     @Test
-    public void testUnixNewlinePreservation() {
-        EditableStyledDocument<String, String> document = new EditableStyledDocument<>("", "");
-        String text = "X\nY";
-        document.replaceText(0, 0, text);
-        assertEquals(text, document.getText());
-    }
-
-    @Test
-    public void testMacNewlinePreservation() {
-        EditableStyledDocument<String, String> document = new EditableStyledDocument<>("", "");
-        String text = "X\rY";
-        document.replaceText(0, 0, text);
-        assertEquals(text, document.getText());
-    }
-
-    @Test
-    public void testWinNewlinePreservation() {
-        EditableStyledDocument<String, String> document = new EditableStyledDocument<>("", "");
-        String text = "X\r\nY";
-        document.replaceText(0, 0, text);
-        assertEquals(text, document.getText());
-    }
-
-    @Test
     public void testUnixParagraphCount() {
         EditableStyledDocument<String, String> document = new EditableStyledDocument<>("", "");
         String text = "X\nY";
@@ -82,5 +58,29 @@ public class EditableStyledDocumentTest {
         String text = "X\r\nY";
         document.replaceText(0, 0, text);
         assertEquals(2, document.getParagraphs().size());
+    }
+
+    @Test
+    public void testGetTextWithEndAfterNewline() {
+        EditableStyledDocument<Boolean, String> doc = new EditableStyledDocument<>(true, "");
+
+        doc.replaceText(0, 0, "123\n");
+        String txt1 = doc.getText(0, 4);
+        assertEquals(4, txt1.length());
+
+        doc.replaceText(4, 4, "567");
+        String txt2 = doc.getText(2, 4);
+        assertEquals(2, txt2.length());
+
+        doc.replaceText(4, 4, "\n");
+        String txt3 = doc.getText(2, 4);
+        assertEquals(2, txt3.length());
+    }
+
+    @Test
+    public void testWinDocumentLength() {
+        EditableStyledDocument<String, String> document = new EditableStyledDocument<>("", "");
+        document.replaceText(0, 0, "X\r\nY");
+        assertEquals(document.getText().length(), document.getLength());
     }
 }

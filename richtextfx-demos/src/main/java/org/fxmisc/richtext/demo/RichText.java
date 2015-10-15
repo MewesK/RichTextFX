@@ -6,6 +6,11 @@
 
 package org.fxmisc.richtext.demo;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.charset.MalformedInputException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -28,6 +33,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
+import org.fxmisc.richtext.Codec;
 import org.fxmisc.richtext.InlineStyleTextArea;
 import org.fxmisc.richtext.Paragraph;
 import org.fxmisc.richtext.StyleSpan;
@@ -37,11 +43,136 @@ import org.reactfx.SuspendableNo;
 public class RichText extends Application {
 
     private static class StyleInfo {
+
         public static final StyleInfo EMPTY = new StyleInfo();
+
+        public static final Codec<StyleInfo> CODEC = new Codec<StyleInfo>() {
+
+            private final Codec<Color> COLOR_CODEC = new Codec<Color>() {
+
+                @Override
+                public String getName() {
+                    return "color";
+                }
+
+                @Override
+                public void encode(DataOutputStream os, Color c)
+                        throws IOException {
+                    os.writeDouble(c.getRed());
+                    os.writeDouble(c.getGreen());
+                    os.writeDouble(c.getBlue());
+                    os.writeDouble(c.getOpacity());
+                }
+
+                @Override
+                public Color decode(DataInputStream is) throws IOException {
+                    return Color.color(
+                            is.readDouble(),
+                            is.readDouble(),
+                            is.readDouble(),
+                            is.readDouble());
+                }
+
+            };
+
+            @Override
+            public String getName() {
+                return "style-info";
+            }
+
+            @Override
+            public void encode(DataOutputStream os, StyleInfo s)
+                    throws IOException {
+                os.writeByte(encodeBoldItalicUnderlineStrikethrough(s));
+                os.writeInt(encodeOptionalUint(s.fontSize));
+                encodeOptional(os, s.fontFamily, Codec.STRING_CODEC);
+                encodeOptional(os, s.textColor, COLOR_CODEC);
+                encodeOptional(os, s.backgroundColor, COLOR_CODEC);
+            }
+
+            @Override
+            public StyleInfo decode(DataInputStream is) throws IOException {
+                byte bius = is.readByte();
+                Optional<Integer> fontSize = decodeOptionalUint(is.readInt());
+                Optional<String> fontFamily = decodeOptional(is, Codec.STRING_CODEC);
+                Optional<Color> textColor = decodeOptional(is, COLOR_CODEC);
+                Optional<Color> bgrColor = decodeOptional(is, COLOR_CODEC);
+                return new StyleInfo(
+                        bold(bius), italic(bius), underline(bius), strikethrough(bius),
+                        fontSize, fontFamily, textColor, bgrColor);
+            }
+
+            private int encodeBoldItalicUnderlineStrikethrough(StyleInfo s) {
+                return encodeOptionalBoolean(s.bold) << 6 |
+                       encodeOptionalBoolean(s.italic) << 4 |
+                       encodeOptionalBoolean(s.underline) << 2 |
+                       encodeOptionalBoolean(s.strikethrough);
+            }
+
+            private Optional<Boolean> bold(byte bius) throws IOException {
+                return decodeOptionalBoolean((bius >> 6) & 3);
+            }
+
+            private Optional<Boolean> italic(byte bius) throws IOException {
+                return decodeOptionalBoolean((bius >> 4) & 3);
+            }
+
+            private Optional<Boolean> underline(byte bius) throws IOException {
+                return decodeOptionalBoolean((bius >> 2) & 3);
+            }
+
+            private Optional<Boolean> strikethrough(byte bius) throws IOException {
+                return decodeOptionalBoolean((bius >> 0) & 3);
+            }
+
+            private int encodeOptionalBoolean(Optional<Boolean> ob) {
+                return ob.map(b -> 2 + (b ? 1 : 0)).orElse(0);
+            }
+
+            private Optional<Boolean> decodeOptionalBoolean(int i) throws IOException {
+                switch(i) {
+                    case 0: return Optional.empty();
+                    case 2: return Optional.of(false);
+                    case 3: return Optional.of(true);
+                }
+                throw new MalformedInputException(0);
+            }
+
+            private int encodeOptionalUint(Optional<Integer> oi) {
+                return oi.orElse(-1);
+            }
+
+            private Optional<Integer> decodeOptionalUint(int i) {
+                return (i < 0) ? Optional.empty() : Optional.of(i);
+            }
+
+            private <T> void encodeOptional(DataOutputStream os, Optional<T> ot, Codec<T> codec) throws IOException {
+                if(ot.isPresent()) {
+                    os.writeBoolean(true);
+                    codec.encode(os, ot.get());
+                } else {
+                    os.writeBoolean(false);
+                }
+            }
+
+            private <T> Optional<T> decodeOptional(DataInputStream is, Codec<T> codec) throws IOException {
+                return is.readBoolean()
+                        ? Optional.of(codec.decode(is))
+                        : Optional.empty();
+            }
+        };
+
         public static StyleInfo fontSize(int fontSize) { return EMPTY.updateFontSize(fontSize); }
         public static StyleInfo fontFamily(String family) { return EMPTY.updateFontFamily(family); }
         public static StyleInfo textColor(Color color) { return EMPTY.updateTextColor(color); }
         public static StyleInfo backgroundColor(Color color) { return EMPTY.updateBackgroundColor(color); }
+
+        private static String cssColor(Color color) {
+            int red = (int) (color.getRed() * 255);
+            int green = (int) (color.getGreen() * 255);
+            int blue = (int) (color.getBlue() * 255);
+            return "rgb(" + red + ", " + green + ", " + blue + ")";
+        }
 
         final Optional<Boolean> bold;
         final Optional<Boolean> italic;
@@ -82,6 +213,30 @@ public class RichText extends Application {
             this.fontFamily = fontFamily;
             this.textColor = textColor;
             this.backgroundColor = backgroundColor;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(
+                    bold, italic, underline, strikethrough,
+                    fontSize, fontFamily, textColor, backgroundColor);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if(other instanceof StyleInfo) {
+                StyleInfo that = (StyleInfo) other;
+                return Objects.equals(this.bold,            that.bold) &&
+                       Objects.equals(this.italic,          that.italic) &&
+                       Objects.equals(this.underline,       that.underline) &&
+                       Objects.equals(this.strikethrough,   that.strikethrough) &&
+                       Objects.equals(this.fontSize,        that.fontSize) &&
+                       Objects.equals(this.fontFamily,      that.fontFamily) &&
+                       Objects.equals(this.textColor,       that.textColor) &&
+                       Objects.equals(this.backgroundColor, that.backgroundColor);
+            } else {
+                return false;
+            }
         }
 
         public String toCss() {
@@ -129,19 +284,12 @@ public class RichText extends Application {
 
             if(textColor.isPresent()) {
                 Color color = textColor.get();
-                int red = (int) (color.getRed() * 255);
-                int green = (int) (color.getGreen() * 255);
-                int blue = (int) (color.getBlue() * 255);
-                sb.append("-fx-fill: rgb(" + red + ", " + green + ", " + blue + ");");
+                sb.append("-fx-fill: " + cssColor(color) + ";");
             }
 
             if(backgroundColor.isPresent()) {
                 Color color = backgroundColor.get();
-                int red = (int) (color.getRed() * 255);
-                int green = (int) (color.getGreen() * 255);
-                int blue = (int) (color.getBlue() * 255);
-                sb.append("-fx-background-fill: rgb(" + red + ", " + green + ", " + blue + ");");
-                sb.append("-fx-background-color: rgb(" + red + ", " + green + ", " + blue + ")");
+                sb.append("-fx-background-fill: " + cssColor(color) + ";");
             }
 
             return sb.toString();
@@ -204,6 +352,7 @@ public class RichText extends Application {
                     StyleInfo::toCss);
     {
         area.setWrapText(true);
+        area.setStyleCodec(StyleInfo.CODEC);
     }
 
     private final SuspendableNo updatingToolbar = new SuspendableNo();
@@ -228,10 +377,7 @@ public class RichText extends Application {
         ComboBox<String> familyCombo = new ComboBox<>(FXCollections.observableList(Font.getFamilies()));
         familyCombo.getSelectionModel().select("Serif");
         ColorPicker textColorPicker = new ColorPicker(Color.BLACK);
-        ColorPicker backgroundColorPicker = new ColorPicker(Color.WHITE);
-        CheckBox paragraphCheckBox = new CheckBox();
-        paragraphCheckBox.setText("Apply to paragraph");
-        this.applyToParagraph.bind(paragraphCheckBox.selectedProperty());
+        ColorPicker backgroundColorPicker = new ColorPicker();
 
         sizeCombo.setOnAction(evt -> updateFontSize(sizeCombo.getValue()));
         familyCombo.setOnAction(evt -> updateFontFamily(familyCombo.getValue()));
@@ -274,8 +420,8 @@ public class RichText extends Application {
                     fontFamily = families.length == 1 ? families[0] : null;
                     Color[] colors = styles.styleStream().map(s -> s.textColor.orElse(null)).distinct().toArray(Color[]::new);
                     textColor = colors.length == 1 ? colors[0] : null;
-                    Color[] backgroundColors = styles.styleStream().map(s -> s.backgroundColor.orElse(null)).distinct().toArray(Color[]::new);
-                    backgroundColor = backgroundColors.length == 1 ? backgroundColors[0] : null;
+                    Color[] backgrounds = styles.styleStream().map(s -> s.backgroundColor.orElse(null)).distinct().toArray(i -> new Color[i]);
+                    backgroundColor = backgrounds.length == 1 ? backgrounds[0] : null;
                 } else {
                     int p = area.getCurrentParagraph();
                     int col = area.getCaretColumn();
@@ -339,19 +485,19 @@ public class RichText extends Application {
                         textColorPicker.setValue(textColor);
                     }
 
-                    if(backgroundColor != null) {
-                        backgroundColorPicker.setValue(backgroundColor);
-                    }
+                    backgroundColorPicker.setValue(backgroundColor);
                 });
             }
         });
 
-        HBox panel = new HBox(3.0);
-        panel.getChildren().addAll(wrapToggle, undoBtn, redoBtn, cutBtn, copyBtn, pasteBtn, boldBtn, italicBtn, underlineBtn, strikeBtn, sizeCombo, familyCombo, textColorPicker, backgroundColorPicker, paragraphCheckBox);
+        HBox panel1 = new HBox(3.0);
+        HBox panel2 = new HBox(3.0);
+        panel1.getChildren().addAll(wrapToggle, undoBtn, redoBtn, cutBtn, copyBtn, pasteBtn, boldBtn, italicBtn, underlineBtn, strikeBtn);
+        panel2.getChildren().addAll(sizeCombo, familyCombo, textColorPicker, backgroundColorPicker);
 
         VBox vbox = new VBox();
         VBox.setVgrow(area, Priority.ALWAYS);
-        vbox.getChildren().addAll(panel, area);
+        vbox.getChildren().addAll(panel1, panel2, area);
 
         Scene scene = new Scene(vbox, 600, 400);
         scene.getStylesheets().add(RichText.class.getResource("rich-text.css").toExternalForm());

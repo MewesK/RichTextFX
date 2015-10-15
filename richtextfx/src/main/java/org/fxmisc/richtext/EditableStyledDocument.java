@@ -7,9 +7,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.regex.Matcher;
 
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.StringBinding;
@@ -95,10 +92,6 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
     //     2. push to textRemovalEnd,
     //     3. push to insertedDocument;
     //   b)
-    //     1. push to textChangePosition,
-    //     2. push to textRemovalEnd,
-    //     3. push to insertionLength;
-    //   c)
     //     1. push to styleChangePosition
     //     2. push to styleChangeEnd
     //     3. push to styleChangeDone.
@@ -112,7 +105,6 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
     private final EventSource<String> insertedText = new EventSource<>();
 
     private final EventSource<StyledDocument<S, PS>> insertedDocument = new EventSource<>();
-    private final EventSource<Integer> insertionLength = new EventSource<>();
     private final EventSource<Void> styleChangeDone = new EventSource<>();
 
     private final EventStream<PlainTextChange> plainTextChanges;
@@ -126,17 +118,17 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         EventStream<Integer> changePosition = EventStreams.merge(textChangePosition, styleChangePosition);
         EventStream<Integer> removalEnd = EventStreams.merge(textRemovalEnd, styleChangeEnd);
         EventStream<StyledDocument<S, PS>> removedDocument = EventStreams.zip(changePosition, removalEnd).map(t2 -> t2.map((a, b) -> subSequence(a, b)));
-        EventStream<Integer> insertionEnd = EventStreams.merge(
-                changePosition.emitBothOnEach(insertionLength).map(t2 -> t2.map((start, len) -> start + len)),
-                styleChangeEnd.emitOn(styleChangeDone));
+        EventStream<Integer> insertionEnd = styleChangeEnd.emitOn(styleChangeDone);
         EventStream<StyledDocument<S, PS>> insertedDocument = EventStreams.merge(
                 this.insertedDocument,
                 changePosition.emitBothOnEach(insertionEnd).map(t2 -> t2.map((a, b) -> subSequence(a, b))));
 
         plainTextChanges = EventStreams.zip(textChangePosition, removedText, insertedText)
+                .filter(t3 -> t3.map((pos, removed, inserted) -> !removed.equals(inserted)))
                 .map(t3 -> t3.map((pos, removed, inserted) -> new PlainTextChange(pos, removed, inserted)));
 
         richChanges = EventStreams.zip(changePosition, removedDocument, insertedDocument)
+                .filter(t3 -> t3.map((pos, removed, inserted) -> !removed.equals(inserted)))
                 .map(t3 -> t3.map((pos, removed, inserted) -> new RichTextChange<>(pos, removed, inserted)));
     }
 
@@ -184,28 +176,51 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
      *                                                                        *
      * ********************************************************************** */
 
-    public void replaceText(int start, int end, String replacement) {
-        ensureValidRange(start, end);
-        replace(start, end, replacement,
-                (repl, pos) -> stringToParagraphs(repl, getStyleForInsertionAt(pos), getParagraphStyleForInsertionAt(pos)),
-                repl -> {
-                    insertedText.push(repl);
-                    insertionLength.push(repl.length());
-                });
+    public void replaceText(int start, int end, String text) {
+        StyledDocument<S, PS> doc = ReadOnlyStyledDocument.fromString(
+                text, getStyleForInsertionAt(start), getParagraphStyleForInsertionAt(start));
+        replace(start, end, doc);
     }
 
     public void replace(int start, int end, StyledDocument<S, PS> replacement) {
         ensureValidRange(start, end);
-        replace(start, end, replacement,
-                (repl, pos) -> repl.getParagraphs(),
-                repl -> {
-                    insertedText.push(repl.toString());
-                    StyledDocument<S, PS> doc =
-                            repl instanceof ReadOnlyStyledDocument
-                            ? repl
-                            : new ReadOnlyStyledDocument<>(repl.getParagraphs(), COPY);
-                    insertedDocument.push(doc);
-                });
+
+        textChangePosition.push(start);
+        textRemovalEnd.push(end);
+
+        Position start2D = navigator.offsetToPosition(start, Forward);
+        Position end2D = start2D.offsetBy(end - start, Forward);
+        int firstParIdx = start2D.getMajor();
+        int firstParFrom = start2D.getMinor();
+        int lastParIdx = end2D.getMajor();
+        int lastParTo = end2D.getMinor();
+
+        // Get the leftovers after cutting out the deletion
+        Paragraph<S, PS> firstPar = paragraphs.get(firstParIdx).trim(firstParFrom);
+        Paragraph<S, PS> lastPar = paragraphs.get(lastParIdx).subSequence(lastParTo);
+
+        List<Paragraph<S, PS>> replacementPars = replacement.getParagraphs();
+
+        List<Paragraph<S, PS>> newPars = join(firstPar, replacementPars, lastPar);
+        setAll(firstParIdx, lastParIdx + 1, newPars);
+
+        // update length, invalidate text
+        int replacementLength =
+                replacementPars.stream().mapToInt(Paragraph::length).sum() +
+                replacementPars.size() - 1;
+        int newLength = length.getValue() - (end - start) + replacementLength;
+        length.suspendWhile(() -> { // don't publish length change until text is invalidated
+            length.setValue(newLength);
+            text.invalidate();
+        });
+
+        // complete the change events
+        insertedText.push(replacement.toString());
+        StyledDocument<S, PS> doc =
+                replacement instanceof ReadOnlyStyledDocument
+                ? replacement
+                : new ReadOnlyStyledDocument<>(replacement.getParagraphs(), COPY);
+        insertedDocument.push(doc);
     }
 
     public void setStyle(int from, int to, S style) {
@@ -307,7 +322,7 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
                 if(q != firstPar) {
                     paragraphs.set(firstParIdx, q);
                 }
-                spansFrom = spansTo.offsetBy(firstPar.getLineTerminator().map(LineTerminator::length).orElse(0), Forward); // skip the newline
+                spansFrom = spansTo.offsetBy(1, Forward); // skip the newline
 
                 for(int i = firstParIdx + 1; i < lastParIdx; ++i) {
                     Paragraph<S, PS> par = paragraphs.get(i);
@@ -316,7 +331,7 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
                     if(q != par) {
                         paragraphs.set(i, q);
                     }
-                    spansFrom = spansTo.offsetBy(par.getLineTerminator().map(LineTerminator::length).orElse(0), Forward); // skip the newline
+                    spansFrom = spansTo.offsetBy(1, Forward); // skip the newline
                 }
 
                 Paragraph<S, PS> lastPar = paragraphs.get(lastParIdx);
@@ -348,30 +363,9 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
 
     /* ********************************************************************** *
      *                                                                        *
-     * Private methods                                                        *
+     * Private and package private methods                                    *
      *                                                                        *
      * ********************************************************************** */
-
-    private static <S, PS> List<Paragraph<S, PS>> stringToParagraphs(String str, S style, PS paragraphStyle) {
-        Matcher m = LineTerminator.regex().matcher(str);
-
-        int n = 1;
-        while(m.find()) ++n;
-        List<Paragraph<S, PS>> res = new ArrayList<>(n);
-
-        int start = 0;
-        m.reset();
-        while(m.find()) {
-            String s = str.substring(start, m.start());
-            LineTerminator t = LineTerminator.from(m.group());
-            res.add(new Paragraph<>(s, style, paragraphStyle).terminate(t));
-            start = m.end();
-        }
-        String last = str.substring(start);
-        res.add(new Paragraph<>(last, style, paragraphStyle));
-
-        return res;
-    }
 
     private void ensureValidRange(int start, int end) {
         ensureValidRange(start, end, length());
@@ -381,7 +375,12 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         if(par < 0 || par >= paragraphs.size()) {
             throw new IllegalArgumentException(par + " is not a valid paragraph index. Must be from [0, " + paragraphs.size() + ")");
         }
-        ensureValidRange(start, end, paragraphs.get(par).fullLength());
+        ensureValidRange(start, end, fullLength(par));
+    }
+
+    private int fullLength(int par) {
+        int n = paragraphs.size();
+        return paragraphs.get(par).length() + (par == n-1 ? 0 : 1);
     }
 
     private void ensureValidRange(int start, int end, int len) {
@@ -399,10 +398,9 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
     private int terminatorLengthToSkip(Position pos) {
         Paragraph<S, PS> par = paragraphs.get(pos.getMajor());
         int skipSum = 0;
-        while(pos.getMinor() >= par.length() && pos.getMinor() < par.fullLength()) {
-            int skipLen = par.fullLength() - pos.getMinor();
-            skipSum += skipLen;
-            pos = pos.offsetBy(skipLen, Forward); // will jump to the next paragraph, if not at the end
+        while(pos.getMinor() == par.length() && pos.getMajor() < paragraphs.size() - 1) {
+            skipSum += 1;
+            pos = pos.offsetBy(1, Forward); // will jump to the next paragraph
             par = paragraphs.get(pos.getMajor());
         }
         return skipSum;
@@ -412,9 +410,9 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         int parLen = paragraphs.get(pos.getMajor()).length();
         int trimSum = 0;
         while(pos.getMinor() > parLen) {
-            int trimLen = pos.getMinor() - parLen;
-            trimSum += trimLen;
-            pos = pos.offsetBy(-trimLen, Backward); // may jump to the end of previous paragraph, if parLen was 0
+            assert pos.getMinor() - parLen == 1;
+            trimSum += 1;
+            pos = pos.offsetBy(-1, Backward); // may jump to the end of previous paragraph, if parLen was 0
             parLen = paragraphs.get(pos.getMajor()).length();
         }
         return trimSum;
@@ -426,86 +424,19 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         return () -> styleChangeDone.push(null);
     }
 
-    /**
-     * Generic implementation for text replacement.
-     * @param start
-     * @param end
-     * @param replacement
-     * @param replacementToParagraphs function to convert the replacement
-     * to paragraphs. In addition to replacement itself, it is also given
-     * the position at which the replacement is going to be inserted. This
-     * position can be used to determine the style of the resulting paragraphs.
-     * @param publishReplacement completes the change events. It has to push
-     * exactly one value {@link #insertedText} and exactly one value to exactly
-     * one of {@link #insertedDocument}, {@link #insertionLength}.
-     */
-    private <D extends CharSequence> void replace(
-            int start, int end, D replacement,
-            BiFunction<D, Position, List<Paragraph<S, PS>>> replacementToParagraphs,
-            Consumer<D> publishReplacement) {
-
-        textChangePosition.push(start);
-        textRemovalEnd.push(end);
-
-        Position start2D = navigator.offsetToPosition(start, Forward);
-        Position end2D = start2D.offsetBy(end - start, Forward);
-        int firstParIdx = start2D.getMajor();
-        int firstParFrom = start2D.getMinor();
-        int lastParIdx = end2D.getMajor();
-        int lastParTo = end2D.getMinor();
-
-        // Get the leftovers after cutting out the deletion
-        Paragraph<S, PS> firstPar = paragraphs.get(firstParIdx).trim(firstParFrom);
-        Paragraph<S, PS> lastPar = paragraphs.get(lastParIdx).subSequence(lastParTo);
-
-        List<Paragraph<S, PS>> replacementPars = replacementToParagraphs.apply(replacement, start2D);
-
-        List<Paragraph<S, PS>> newPars = join(firstPar, replacementPars, lastPar);
-        setAll(firstParIdx, lastParIdx + 1, newPars);
-
-        // update length, invalidate text
-        int newLength = length.getValue() - (end - start) + replacement.length();
-        length.suspendWhile(() -> { // don't publish length change until text is invalidated
-            length.setValue(newLength);
-            text.invalidate();
-        });
-
-        // complete the change events
-        publishReplacement.accept(replacement);
-    }
-
     private List<Paragraph<S, PS>> join(Paragraph<S, PS> first, List<Paragraph<S, PS>> middle, Paragraph<S, PS> last) {
         int m = middle.size();
         if(m == 0) {
-            return join(first, last);
-        } else if(!first.isTerminated()) {
-            first = first.concat(middle.get(0));
-            middle = middle.subList(1, m);
-            return join(first, middle, last);
+            return Arrays.asList(first.concat(last));
+        } else if(m == 1) {
+            return Arrays.asList(first.concat(middle.get(0)).concat(last));
         } else {
-            Paragraph<S, PS> lastMiddle = middle.get(m - 1);
-            if(lastMiddle.isTerminated()) {
-                int n = 1 + m + 1;
-                List<Paragraph<S, PS>> res = new ArrayList<>(n);
-                res.add(first);
-                res.addAll(middle);
-                res.add(last);
-                return res;
-            } else {
-                int n = 1 + m;
-                List<Paragraph<S, PS>> res = new ArrayList<>(n);
-                res.add(first);
-                res.addAll(middle.subList(0, m - 1));
-                res.add(lastMiddle.concat(last));
-                return res;
-            }
+            List<Paragraph<S, PS>> res = new ArrayList<>(middle.size());
+            res.add(first.concat(middle.get(0)));
+            res.addAll(middle.subList(1, m - 1));
+            res.add(middle.get(m-1).concat(last));
+            return res;
         }
-    }
-
-    private List<Paragraph<S, PS>> join(Paragraph<S, PS> first, Paragraph<S, PS> last) {
-        return first.isTerminated()
-                ? Arrays.asList(first, last)
-                : Arrays.asList(first.concat(last));
     }
 
     // TODO: Replace with ObservableList.setAll(from, to, col) when implemented.
@@ -519,7 +450,11 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         }
     }
 
-    private S getStyleForInsertionAt(Position insertionPos) {
+    S getStyleForInsertionAt(int pos) {
+        return getStyleForInsertionAt(navigator.offsetToPosition(pos, Forward));
+    }
+
+    S getStyleForInsertionAt(Position insertionPos) {
         if(useInitialStyleForInsertion.get()) {
             return initialStyle;
         } else {
@@ -528,7 +463,11 @@ final class EditableStyledDocument<S, PS> extends StyledDocumentBase<S, PS, Obse
         }
     }
 
-    private PS getParagraphStyleForInsertionAt(Position insertionPos) {
+    PS getParagraphStyleForInsertionAt(int pos) {
+        return getParagraphStyleForInsertionAt(navigator.offsetToPosition(pos, Forward));
+    }
+
+    PS getParagraphStyleForInsertionAt(Position insertionPos) {
         if(useInitialStyleForInsertion.get()) {
             return initialParagraphStyle;
         } else {

@@ -5,6 +5,7 @@ import static org.fxmisc.richtext.TwoDimensional.Bias.*;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.Spliterator;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
@@ -145,26 +146,15 @@ public interface StyleSpans<S> extends Iterable<StyleSpan<S>>, TwoDimensional {
      * @return StyleSpans with replaced styles.
      */
     default StyleSpans<S> mapStyles(UnaryOperator<S> mapper) {
-        int n = getSpanCount();
-        StyleSpansBuilder<S> builder = new StyleSpansBuilder<>(n);
-
-        StyleSpan<S> firstSpan = getStyleSpan(0); // there should always be at least one span
-        int prevLen = firstSpan.getLength();
-        S prevStyle = mapper.apply(firstSpan.getStyle());
-        for(int i = 1; i < n; ++i) {
-            StyleSpan<S> span = getStyleSpan(i);
-            S style = mapper.apply(span.getStyle());
-            if(Objects.equals(prevStyle, style)) {
-                prevLen += span.getLength();
-            } else {
-                builder.add(prevStyle, prevLen);
-                prevLen = span.getLength();
-                prevStyle = style;
-            }
+        StyleSpansBuilder<S> builder = new StyleSpansBuilder<>(getSpanCount());
+        for(StyleSpan<S> span: this) {
+            builder.add(mapper.apply(span.getStyle()), span.getLength());
         }
-        builder.add(prevStyle, prevLen);
-
         return builder.create();
+    }
+
+    default StyleSpans<S> overlay(StyleSpans<S> that, BiFunction<? super S, ? super S, ? extends S> f) {
+        return StyleSpansBuilder.overlay(this, that, f);
     }
 
     default Stream<S> styleStream() {

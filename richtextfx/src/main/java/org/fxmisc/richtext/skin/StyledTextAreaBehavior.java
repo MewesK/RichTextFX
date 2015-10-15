@@ -1,6 +1,5 @@
 package org.fxmisc.richtext.skin;
 
-import static com.sun.javafx.PlatformUtil.*;
 import static javafx.scene.input.KeyCode.*;
 import static javafx.scene.input.KeyCombination.*;
 import static javafx.scene.input.KeyEvent.*;
@@ -8,6 +7,7 @@ import static org.fxmisc.richtext.TwoDimensional.Bias.*;
 import static org.fxmisc.wellbehaved.event.EventPattern.*;
 import static org.reactfx.EventStreams.*;
 
+import java.util.Optional;
 import java.util.function.Predicate;
 
 import javafx.event.EventHandler;
@@ -21,6 +21,7 @@ import javafx.scene.input.MouseEvent;
 import org.fxmisc.richtext.NavigationActions.SelectionPolicy;
 import org.fxmisc.richtext.StyledTextArea;
 import org.fxmisc.richtext.TwoDimensional.Position;
+import org.fxmisc.richtext.skin.ParagraphBox.CaretOffsetX;
 import org.fxmisc.wellbehaved.event.EventHandlerHelper;
 import org.fxmisc.wellbehaved.event.EventHandlerTemplate;
 import org.fxmisc.wellbehaved.skin.Behavior;
@@ -29,17 +30,23 @@ import org.reactfx.Subscription;
 import org.reactfx.value.Val;
 import org.reactfx.value.Var;
 
-import com.sun.javafx.PlatformUtil;
-
 /**
  * Controller for StyledTextArea.
  */
 public class StyledTextAreaBehavior implements Behavior {
 
+    private static final boolean isMac;
+    private static final boolean isWindows;
+    static {
+        String os = System.getProperty("os.name");
+        isMac = os.startsWith("Mac");
+        isWindows = os.startsWith("Windows");
+    }
+
     private static final EventHandlerTemplate<StyledTextAreaBehavior, ? super KeyEvent> KEY_PRESSED_TEMPLATE;
     private static final EventHandlerTemplate<StyledTextAreaBehavior, ? super KeyEvent> KEY_TYPED_TEMPLATE;
     static {
-        SelectionPolicy selPolicy = PlatformUtil.isMac()
+        SelectionPolicy selPolicy = isMac
                 ? SelectionPolicy.EXTEND
                 : SelectionPolicy.ADJUST;
 
@@ -130,7 +137,7 @@ public class StyledTextAreaBehavior implements Behavior {
                 // filter out control keys
                 (!e.isControlDown() && !e.isMetaDown())
                 // except on Windows allow the Ctrl+Alt combination (produced by AltGr)
-                || (isWindows() && !e.isMetaDown());
+                || (isWindows && !e.isMetaDown() && (!e.isControlDown() || e.isAltDown()));
 
         Predicate<KeyEvent> isChar = e ->
                 e.getCode().isLetterKey() ||
@@ -191,14 +198,14 @@ public class StyledTextAreaBehavior implements Behavior {
     /**
      * Remembers horizontal position when traversing up / down.
      */
-    private double targetCaretOffset = -1;
+    private Optional<CaretOffsetX> targetCaretOffset = Optional.empty();
     private void clearTargetCaretOffset() {
-        targetCaretOffset = -1;
+        targetCaretOffset = Optional.empty();
     }
-    private double getTargetCaretOffset() {
-        if(targetCaretOffset == -1)
-            targetCaretOffset = view.getCaretOffsetX();
-        return targetCaretOffset;
+    private CaretOffsetX getTargetCaretOffset() {
+        if(!targetCaretOffset.isPresent())
+            targetCaretOffset = Optional.of(view.getCaretOffsetX());
+        return targetCaretOffset.get();
     }
 
     private final Var<Point2D> autoscrollTo = Var.newSimpleVar(null);
@@ -358,10 +365,10 @@ public class StyledTextAreaBehavior implements Behavior {
         Position targetLine = currentLine.offsetBy(nLines, Forward).clamp();
         if(!currentLine.sameAs(targetLine)) {
             // compute new caret position
-            int newCaretPos = view.getInsertionIndex(getTargetCaretOffset(), targetLine);
+            CharacterHit hit = view.hit(getTargetCaretOffset(), targetLine);
 
             // update model
-            visual.getControl().moveTo(newCaretPos, selectionPolicy);
+            visual.getControl().moveTo(hit.getInsertionIndex(), selectionPolicy);
         }
     }
 
@@ -375,14 +382,14 @@ public class StyledTextAreaBehavior implements Behavior {
 
     private void prevPage(SelectionPolicy selectionPolicy) {
         view.showCaretAtBottom();
-        int newCaretPos = view.getInsertionIndex(getTargetCaretOffset(), 1.0);
-        visual.getControl().moveTo(newCaretPos, selectionPolicy);
+        CharacterHit hit = view.hit(getTargetCaretOffset(), 1.0);
+        visual.getControl().moveTo(hit.getInsertionIndex(), selectionPolicy);
     }
 
     private void nextPage(SelectionPolicy selectionPolicy) {
         view.showCaretAtTop();
-        int newCaretPos = view.getInsertionIndex(getTargetCaretOffset(), view.getViewportHeight() - 1.0);
-        visual.getControl().moveTo(newCaretPos, selectionPolicy);
+        CharacterHit hit = view.hit(getTargetCaretOffset(), view.getViewportHeight() - 1.0);
+        visual.getControl().moveTo(hit.getInsertionIndex(), selectionPolicy);
     }
 
 
@@ -407,7 +414,7 @@ public class StyledTextAreaBehavior implements Behavior {
                 // switching anchor and caret if necessary.
                 area.moveTo(
                         hit.getInsertionIndex(),
-                        isMac() ? SelectionPolicy.EXTEND : SelectionPolicy.ADJUST);
+                        isMac ? SelectionPolicy.EXTEND : SelectionPolicy.ADJUST);
             } else {
                 switch (e.getClickCount()) {
                     case 1: firstLeftPress(hit); break;
@@ -426,8 +433,9 @@ public class StyledTextAreaBehavior implements Behavior {
         IndexRange selection = area.getSelection();
         if(area.isEditable() &&
                 selection.getLength() != 0 &&
-                hit.getCharacterIndex() >= selection.getStart() &&
-                hit.getCharacterIndex() < selection.getEnd()) {
+                hit.getCharacterIndex().isPresent() &&
+                hit.getCharacterIndex().getAsInt() >= selection.getStart() &&
+                hit.getCharacterIndex().getAsInt() < selection.getEnd()) {
             // press inside selection
             dragSelection = DragState.POTENTIAL_DRAG;
         } else {

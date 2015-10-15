@@ -10,12 +10,14 @@ import java.util.List;
  */
 public class StyleClassedTextArea extends StyledTextArea<Collection<String>, Collection<String>> {
 
-    public <C> StyleClassedTextArea(boolean preserveStyle) {
+    public StyleClassedTextArea(boolean preserveStyle) {
         super(Collections.<String>emptyList(),
                 (text, styleClasses) -> text.getStyleClass().addAll(styleClasses),
                 Collections.<String>emptyList(),
                 (paragraph, styleClasses) -> paragraph.getStyleClass().addAll(styleClasses),
                 preserveStyle);
+
+        setStyleCodec(SuperCodec.upCast(SuperCodec.collectionListCodec(Codec.STRING_CODEC)));
     }
 
     /**

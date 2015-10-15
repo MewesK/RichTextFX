@@ -13,6 +13,7 @@ RichTextFX provides a text area for JavaFX with API to style ranges of text. It 
 * [Requirements](#requirements)
 * [Demos](#demos)
   * [Highlighting of Java keywords](#automatic-highlighting-of-java-keywords)
+  * [XML Editor](#xml-editor)
   * [Rich-text editor](#rich-text-editor)
   * [Custom tooltips](#custom-tooltips)
 * [Download](#download)
@@ -32,6 +33,7 @@ Who uses RichTextFX?
 [Alt.Text](http://alttexting.com/)  
 [Xanthic](https://github.com/jrguenther/Xanthic)  
 [Arduino Harp](http://www.avrharp.org/)  
+[Markdown Writer FX](https://github.com/JFormDesigner/markdown-writer-fx)  
 
 If you use RichTextFX in an interesting project, I would like to know!
 
@@ -139,13 +141,13 @@ Demos
 
 #### Run using the pre-built JAR
 
-[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.4/richtextfx-demos-fat-0.6.4.jar) the pre-built "fat" JAR file and run
+[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-demos-fat-0.6.10.jar) the pre-built "fat" JAR file and run
 
-    java -cp richtextfx-demos-fat-0.6.4.jar org.fxmisc.richtext.demo.JavaKeywords
+    java -cp richtextfx-demos-fat-0.6.10.jar org.fxmisc.richtext.demo.JavaKeywords
 
 or
 
-    java -cp richtextfx-demos-fat-0.6.4.jar org.fxmisc.richtext.demo.JavaKeywordsAsync
+    java -cp richtextfx-demos-fat-0.6.10.jar org.fxmisc.richtext.demo.JavaKeywordsAsync
 
 #### Run from the source repo
 
@@ -164,14 +166,33 @@ or
 The former computes highlighting on the JavaFX application thread, while the latter computes highlighting on a background thread.
 
 
+### XML Editor
+
+Similar to the [Java Keywords](#automatic-highlighting-of-java-keywords) demo above, this demo highlights XML syntax. Courtesy of @cemartins.
+
+#### Run using the pre-built JAR
+
+[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-demos-fat-0.6.10.jar) the pre-built "fat" JAR file and run
+
+    java -cp richtextfx-demos-fat-0.6.10.jar org.fxmisc.richtext.demo.XMLEditor
+
+#### Run from the source repo
+
+    gradle XMLEditor
+
+#### Source code
+
+[XMLEditor.java](https://github.com/TomasMikula/RichTextFX/blob/master/richtextfx-demos/src/main/java/org/fxmisc/richtext/demo/XMLEditor.java)
+
+
 ### Rich-text editor
 
 ![Screenshot of the RichText demo](https://googledrive.com/host/0B4a5AnNnZhkbYlVlbVprYnhPdVk/rich-text.png)
 
 #### Run using the pre-built JAR
-[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.4/richtextfx-demos-fat-0.6.4.jar) the pre-built "fat" JAR file and run
+[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-demos-fat-0.6.10.jar) the pre-built "fat" JAR file and run
 
-    java -cp richtextfx-demos-fat-0.6.4.jar org.fxmisc.richtext.demo.RichText
+    java -cp richtextfx-demos-fat-0.6.10.jar org.fxmisc.richtext.demo.RichText
 
 #### Run from the source repo
 
@@ -189,9 +210,9 @@ When the mouse pauses over the text area, you can get index of the character und
 ![Screenshot of the RichText demo](https://googledrive.com/host/0B4a5AnNnZhkbYlVlbVprYnhPdVk/tooltip-demo.png)
 
 #### Run using the pre-built JAR
-[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.4/richtextfx-demos-fat-0.6.4.jar) the pre-built "fat" JAR file and run
+[Download](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-demos-fat-0.6.10.jar) the pre-built "fat" JAR file and run
 
-    java -cp richtextfx-demos-fat-0.6.4.jar org.fxmisc.richtext.demo.TooltipDemo
+    java -cp richtextfx-demos-fat-0.6.10.jar org.fxmisc.richtext.demo.TooltipDemo
 
 #### Run from the source repo
 
@@ -207,31 +228,31 @@ Download
 
 ### Stable release
 
-Current stable release is 0.6.4.
+Current stable release is 0.6.10.
 
 #### Maven coordinates
 
 | Group ID            | Artifact ID | Version |
 | :-----------------: | :---------: | :-----: |
-| org.fxmisc.richtext | richtextfx  | 0.6.4   |
+| org.fxmisc.richtext | richtextfx  | 0.6.10  |
 
 #### Gradle example
 
 ```groovy
 dependencies {
-    compile group: 'org.fxmisc.richtext', name: 'richtextfx', version: '0.6.4'
+    compile group: 'org.fxmisc.richtext', name: 'richtextfx', version: '0.6.10'
 }
 ```
 
 #### Sbt example
 
 ```scala
-libraryDependencies += "org.fxmisc.richtext" % "richtextfx" % "0.6.4"
+libraryDependencies += "org.fxmisc.richtext" % "richtextfx" % "0.6.10"
 ```
 
 #### Manual download
 
-Download [the JAR file](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.4/richtextfx-0.6.4.jar) or [the fat JAR file (including dependencies)](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.4/richtextfx-fat-0.6.4.jar) and place it on your classpath.
+Download [the JAR file](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-0.6.10.jar) or [the fat JAR file (including dependencies)](https://github.com/TomasMikula/RichTextFX/releases/download/v0.6.10/richtextfx-fat-0.6.10.jar) and place it on your classpath.
 
 
 ### Snapshot releases

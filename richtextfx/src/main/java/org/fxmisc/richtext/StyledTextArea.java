@@ -43,6 +43,7 @@ import org.fxmisc.richtext.CssProperties.EditableProperty;
 import org.fxmisc.richtext.CssProperties.FontProperty;
 import org.fxmisc.richtext.skin.StyledTextAreaBehavior;
 import org.fxmisc.richtext.skin.StyledTextAreaVisual;
+import org.fxmisc.richtext.skin.TextExt;
 import org.fxmisc.undo.UndoManager;
 import org.fxmisc.undo.UndoManagerFactory;
 import org.fxmisc.wellbehaved.skin.Skins;
@@ -248,6 +249,19 @@ implements
     public boolean getUseInitialStyleForInsertion() { return content.useInitialStyleForInsertion.get(); }
     public BooleanProperty useInitialStyleForInsertionProperty() { return content.useInitialStyleForInsertion; }
 
+    private Optional<Codec<S>> styleCodec = Optional.empty();
+    /**
+     * Sets the codec to encode/decode style information to/from binary format.
+     * Providing a codec enables clipboard actions to retain the style information.
+     */
+    public void setStyleCodec(Codec<S> codec) {
+        styleCodec = Optional.of(codec);
+    }
+    @Override
+    public Optional<Codec<S>> getStyleCodec() {
+        return styleCodec;
+    }
+
 
     /* ********************************************************************** *
      *                                                                        *
@@ -360,7 +374,7 @@ implements
     /**
      * Style applicator used by the default skin.
      */
-    private final BiConsumer<Text, S> applyStyle;
+    private final BiConsumer<? super TextExt, S> applyStyle;
 
     /**
      * Style applicator used by the default skin.
@@ -397,11 +411,11 @@ implements
      * a style, applies the style to the paragraph node. This function is
      * used by the default skin to apply style to paragraph nodes.
      */
-    public StyledTextArea(S initialStyle, BiConsumer<Text, S> applyStyle, PS initialParagraphStyle, BiConsumer<TextFlow, PS> applyParagraphStyle) {
+    public StyledTextArea(S initialStyle, BiConsumer<? super TextExt, S> applyStyle, PS initialParagraphStyle, BiConsumer<TextFlow, PS> applyParagraphStyle) {
         this(initialStyle, applyStyle, initialParagraphStyle, applyParagraphStyle, true);
     }
 
-    public <C> StyledTextArea(S initialStyle, BiConsumer<Text, S> applyStyle,
+    public <C> StyledTextArea(S initialStyle, BiConsumer<? super TextExt, S> applyStyle,
             PS initialParagraphStyle, BiConsumer<TextFlow, PS> applyParagraphStyle,
             boolean preserveStyle) {
         this.initialStyle = initialStyle;
@@ -699,7 +713,7 @@ implements
      */
     public void setParagraphStyle(int paragraph, PS paragraphStyle) {
         if (paragraph >= 0 && paragraph < paragraphs.size()) {
-            paragraphs.get(paragraph).setParagraphStyle(paragraphStyle);
+            paragraphs.set(paragraph, paragraphs.get(paragraph).setParagraphStyle(paragraphStyle));
         }
     }
 
@@ -734,15 +748,9 @@ implements
 
     @Override
     public void replaceText(int start, int end, String text) {
-        try(Guard g = omniSuspendable.suspend()) {
-            start = clamp(0, start, getLength());
-            end = clamp(0, end, getLength());
-
-            content.replaceText(start, end, text);
-
-            int newCaretPos = start + text.length();
-            selectRange(newCaretPos, newCaretPos);
-        }
+        StyledDocument<S, PS> doc = ReadOnlyStyledDocument.fromString(
+                text, content.getStyleForInsertionAt(start), content.getParagraphStyleForInsertionAt(start));
+        replace(start, end, doc);
     }
 
     @Override
@@ -812,16 +820,14 @@ implements
 
     private UndoManager createPlainUndoManager(UndoManagerFactory factory) {
         Consumer<PlainTextChange> apply = change -> replaceText(change.getPosition(), change.getPosition() + change.getRemoved().length(), change.getInserted());
-        Consumer<PlainTextChange> undo = change -> replaceText(change.getPosition(), change.getPosition() + change.getInserted().length(), change.getRemoved());
         BiFunction<PlainTextChange, PlainTextChange, Optional<PlainTextChange>> merge = (change1, change2) -> change1.mergeWith(change2);
-        return factory.create(plainTextChanges(), apply, undo, merge);
+        return factory.create(plainTextChanges(), PlainTextChange::invert, apply, merge);
     }
 
     private UndoManager createRichUndoManager(UndoManagerFactory factory) {
         Consumer<RichTextChange<S, PS>> apply = change -> replace(change.getPosition(), change.getPosition() + change.getRemoved().length(), change.getInserted());
-        Consumer<RichTextChange<S, PS>> undo = change -> replace(change.getPosition(), change.getPosition() + change.getInserted().length(), change.getRemoved());
         BiFunction<RichTextChange<S, PS>, RichTextChange<S, PS>, Optional<RichTextChange<S, PS>>> merge = (change1, change2) -> change1.mergeWith(change2);
-        return factory.create(richChanges(), apply, undo, merge);
+        return factory.create(richChanges(), RichTextChange::invert, apply, merge);
     }
 
     private Guard suspend(Suspendable... suspendables) {

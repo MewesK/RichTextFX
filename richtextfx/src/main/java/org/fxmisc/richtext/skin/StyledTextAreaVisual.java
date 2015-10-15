@@ -1,20 +1,20 @@
 package org.fxmisc.richtext.skin;
 
-import javafx.css.CssMetaData;
-import javafx.css.Styleable;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
-import org.fxmisc.richtext.StyledTextArea;
-import org.fxmisc.wellbehaved.skin.SimpleVisualBase;
-
 import java.util.List;
 import java.util.function.BiConsumer;
+
+import javafx.css.CssMetaData;
+import javafx.css.Styleable;
+import javafx.scene.text.TextFlow;
+
+import org.fxmisc.richtext.StyledTextArea;
+import org.fxmisc.wellbehaved.skin.SimpleVisualBase;
 
 public class StyledTextAreaVisual<S, PS> extends SimpleVisualBase<StyledTextArea<S, PS>> {
     private final StyledTextAreaView<S, PS> node;
 
     public StyledTextAreaVisual(StyledTextArea<S, PS> control,
-                                BiConsumer<Text, S> applyStyle,
+                                BiConsumer<? super TextExt, S> applyStyle,
                                 PS initialParagraphStyle,
                                 BiConsumer<TextFlow, PS> applyParagraphStyle) {
         super(control);

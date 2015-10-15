@@ -4,6 +4,7 @@ import static org.reactfx.util.Tuples.*;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.BiConsumer;
 import java.util.function.IntFunction;
 
@@ -21,7 +22,6 @@ import javafx.scene.Node;
 import javafx.scene.control.IndexRange;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Paint;
-import javafx.scene.text.Text;
 
 import javafx.scene.text.TextFlow;
 import org.fxmisc.richtext.Paragraph;
@@ -33,6 +33,19 @@ import org.reactfx.value.Val;
 import org.reactfx.value.Var;
 
 public class ParagraphBox<S, PS> extends Region {
+
+    /**
+     * An opaque class representing horizontal caret offset.
+     * Although it is just a wrapper around double, its purpose is to increase
+     * type safety.
+     */
+    public static class CaretOffsetX {
+        private final double value;
+
+        private CaretOffsetX(double value) {
+            this.value = value;
+        }
+    }
 
     private final ParagraphText<S, PS> text;
 
@@ -57,15 +70,10 @@ public class ParagraphBox<S, PS> extends Region {
     public void setIndex(int index) { this.index.setValue(index); }
     public int getIndex() { return index.getValue(); }
 
-    public ParagraphBox(Paragraph<S, PS> par, BiConsumer<Text, S> applyStyle, PS initialParagraphStyle,  BiConsumer<TextFlow, PS> applyParagraphStyle) {
+    public ParagraphBox(Paragraph<S, PS> par, BiConsumer<? super TextExt, S> applyStyle, PS initialParagraphStyle,  BiConsumer<TextFlow, PS> applyParagraphStyle) {
         this.getStyleClass().add("paragraph-box");
         this.text = new ParagraphText<>(par, applyStyle);
         applyParagraphStyle.accept(this.text, initialParagraphStyle);
-        par.paragraphStyle().addListener((observable, oldValue, newValue) -> {
-            if (newValue != null) {
-                applyParagraphStyle.accept(this.text, newValue);
-            }
-        });
         this.index = Var.newSimpleVar(0);
         getChildren().add(text);
         graphic = Val.combine(
@@ -96,7 +104,7 @@ public class ParagraphBox<S, PS> extends Region {
 
     public Property<Paint> highlightTextFillProperty() { return text.highlightTextFillProperty(); }
 
-    public Property<Number> caretPositionProperty() { return text.caretPositionProperty(); }
+    public Var<Integer> caretPositionProperty() { return text.caretPositionProperty(); }
 
     public Property<IndexRange> selectionProperty() { return text.selectionProperty(); }
 
@@ -108,9 +116,9 @@ public class ParagraphBox<S, PS> extends Region {
         EventStream<Either<Point2D, Void>> stationaryEvents = new MouseStationaryHelper(this).events(delay);
         EventStream<Tuple2<Point2D, Integer>> hits = stationaryEvents.filterMap(Either::asLeft)
                 .filterMap(p -> {
-                    CharacterHit hit = hit(p);
-                    if(hit.isCharacterHit()) {
-                        return Optional.of(t(p, hit.getCharacterIndex()));
+                    OptionalInt charIdx = hit(p).getCharacterIndex();
+                    if(charIdx.isPresent()) {
+                        return Optional.of(t(p, charIdx.getAsInt()));
                     } else {
                         return Optional.empty();
                     }
@@ -129,9 +137,9 @@ public class ParagraphBox<S, PS> extends Region {
         return text.hit(inText.getX(), inText.getY());
     }
 
-    public double getCaretOffsetX() {
+    public CaretOffsetX getCaretOffsetX() {
         layout(); // ensure layout, is a no-op if not dirty
-        return text.getCaretOffsetX();
+        return new CaretOffsetX(text.getCaretOffsetX());
     }
 
     public int getLineCount() {
@@ -204,24 +212,22 @@ public class ParagraphBox<S, PS> extends Region {
     }
 
     /**
-     * Hits the embedded TextFlow at the given line and x offset. Offsets are
-     * relative to the embedded TextFlow, not relative to this ParagraphBox.
+     * Hits the embedded TextFlow at the given line and x offset.
      *
-     * @param textX x coordinate relative to the embedded TextFlow.
+     * @param x x coordinate relative to the embedded TextFlow.
      * @param line index of the line in the embedded TextFlow.
      * @return hit info for the given line and x coordinate
      */
-    CharacterHit hitTextLine(double textX, int line) {
-        return text.hitLine(textX, line);
+    CharacterHit hitTextLine(CaretOffsetX x, int line) {
+        return text.hitLine(x.value, line);
     }
 
     /**
-     * Hits the embedded TextFlow at the given x and y offset. Offsets are
-     * relative to the embedded TextFlow, not relative to this ParagraphBox.
+     * Hits the embedded TextFlow at the given x and y offset.
      *
      * @return hit info for the given x and y coordinates
      */
-    CharacterHit hitText(double x, double y) {
-        return text.hit(x, y);
+    CharacterHit hitText(CaretOffsetX x, double y) {
+        return text.hit(x.value, y);
     }
 }

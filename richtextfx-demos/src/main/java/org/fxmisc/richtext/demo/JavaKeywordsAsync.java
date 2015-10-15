@@ -3,6 +3,7 @@ package org.fxmisc.richtext.demo;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -16,11 +17,9 @@ import javafx.stage.Stage;
 
 import org.fxmisc.richtext.CodeArea;
 import org.fxmisc.richtext.LineNumberFactory;
-import org.fxmisc.richtext.PlainTextChange;
 import org.fxmisc.richtext.StyleSpans;
 import org.fxmisc.richtext.StyleSpansBuilder;
 import org.reactfx.EventStream;
-import org.reactfx.util.Try;
 
 public class JavaKeywordsAsync extends Application {
 
@@ -91,12 +90,19 @@ public class JavaKeywordsAsync extends Application {
         executor = Executors.newSingleThreadExecutor();
         codeArea = new CodeArea();
         codeArea.setParagraphGraphicFactory(LineNumberFactory.get(codeArea));
-        EventStream<PlainTextChange> textChanges = codeArea.plainTextChanges();
-        textChanges
+        EventStream<?> richChanges = codeArea.richChanges();
+        richChanges
                 .successionEnds(Duration.ofMillis(500))
                 .supplyTask(this::computeHighlightingAsync)
-                .awaitLatest(textChanges)
-                .map(Try::get)
+                .awaitLatest(richChanges)
+                .filterMap(t -> {
+                    if(t.isSuccess()) {
+                        return Optional.of(t.get());
+                    } else {
+                        t.getFailure().printStackTrace();
+                        return Optional.empty();
+                    }
+                })
                 .subscribe(this::applyHighlighting);
         codeArea.replaceText(0, 0, sampleCode);
 

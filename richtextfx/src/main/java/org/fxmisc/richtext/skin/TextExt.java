@@ -1,19 +1,38 @@
 package org.fxmisc.richtext.skin;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javafx.beans.property.ObjectProperty;
-import javafx.css.*;
+import javafx.css.CssMetaData;
+import javafx.css.StyleConverter;
+import javafx.css.Styleable;
+import javafx.css.StyleableObjectProperty;
+import javafx.css.StyleableProperty;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.Paint;
 import javafx.scene.text.Text;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class TextExt extends Text {
 
-    private ObjectProperty<Paint> backgroundFill = null;
+    private final StyleableObjectProperty<Paint> backgroundFill = new StyleableObjectProperty<Paint>(null) {
+        @Override
+        public Object getBean() {
+            return TextExt.this;
+        }
 
-    public TextExt(String text) {
+        @Override
+        public String getName() {
+            return "backgroundFill";
+        }
+
+        @Override
+        public CssMetaData<TextExt, Paint> getCssMetaData() {
+            return StyleableProperties.BACKGROUND_FILL;
+        }
+    };
+
+    TextExt(String text) {
         super(text);
     }
 
@@ -33,29 +52,11 @@ public class TextExt extends Text {
         return backgroundFill.get();
     }
 
-    public void setBackgroundFill(Paint backgroundFill) {
-        this.backgroundFill.set(backgroundFill);
+    public void setBackgroundFill(Paint fill) {
+        backgroundFill.set(fill);
     }
 
     public ObjectProperty<Paint> backgroundFillProperty() {
-        if (backgroundFill == null) {
-            backgroundFill = new StyleableObjectProperty<Paint>(null) {
-                @Override
-                public Object getBean() {
-                    return TextExt.this;
-                }
-
-                @Override
-                public String getName() {
-                    return "backgroundFill";
-                }
-
-                @Override
-                public CssMetaData<TextExt, Paint> getCssMetaData() {
-                    return StyleableProperties.BACKGROUND_FILL;
-                }
-            };
-        }
         return backgroundFill;
     }
 
@@ -67,12 +68,12 @@ public class TextExt extends Text {
                 Color.TRANSPARENT) {
             @Override
             public boolean isSettable(TextExt node) {
-                return node.backgroundFill == null || !node.backgroundFill.isBound();
+                return !node.backgroundFill.isBound();
             }
 
             @Override
             public StyleableProperty<Paint> getStyleableProperty(TextExt node) {
-                return (StyleableProperty<Paint>) node.backgroundFillProperty();
+                return node.backgroundFill;
             }
         };
     }
